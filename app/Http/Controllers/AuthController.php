@@ -5,13 +5,17 @@ use Illuminate\Http\Request;
 use App\Models\User;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Cookie;
+use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Str;
+use App\Mail\RegistrationOtpMail;
+use App\Models\PendingRegistration;
 class AuthController extends Controller
 {
     public function showRegister()
     {
         return view('auth.register');
     }
-    public function register(Request $request)
+    public function sendRegistrationOtp(Request $request)
     {
         $request->validate([
             'name'=> 'required|string|max:255',
@@ -21,14 +25,26 @@ class AuthController extends Controller
             'date_of_birth'=>'required|date',
         ]);
 
-        $user=new User();
-        $user->name=$request->name;
-        $user->email=$request->email;
-        $user->password=Hash::make($request->password);
-        $user->phone=$request->phone;
-        $user->date_of_birth=$request->date_of_birth;
-        $user->save();
-        return redirect()->route('login')->with('success','Registration successful! Please Login');
+        $otp=(string) random_int(100000,999999);
+
+        $pending=PendingRegistration::updateOrCreate(
+            ['email'=>$request->email],
+            [
+                'registration_id'=> (string) Str::uuid(),
+                'name'=>$request->name,
+                'password'=>Hash::make($request->password),
+                'phone'=>$request->phone,
+                'date_of_birth'=>$request->date_of_birth,
+                'otp_hash'=>Hash::make($otp),
+                'otp_expires_at'=>now()->addminutes(5),
+                'attempts'=>0,
+                'last_otp_sent_at'=>now(),
+            ]
+        );
+        Mail::to($pending->email)->send(new RegistrationOtpMail($pending->name,$otp,5));
+        session(['pending_registration_id'=>$pending->registration_id]);
+        return redirect()->route('register')->with('success', "OTP sent to your email. Please check and verify.");
+
     }
     public function showLogin()
     {
